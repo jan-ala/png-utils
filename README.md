@@ -2,7 +2,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.1.3-green.svg)](png_utils.py)
+[![Version](https://img.shields.io/badge/version-1.1.4-green.svg)](png_utils.py)
 [![No Dependencies](https://img.shields.io/badge/dependencies-none-brightgreen.svg)]()
 
 A pure Python library for creating PNG images from scratch with zero dependencies. Generate PNG files with comprehensive feature support using only the Python standard library.
@@ -70,7 +70,7 @@ png_data = create_png(
     image_data=bytes(image_data),
     color_type=COLOR_TYPE_RGB,
     auxiliary_chunks={
-        'tEXt': ('Software', 'PNG Utils v1.1.3'),
+        'tEXt': ('Software', 'PNG Utils v1.1.4'),
         'tIME': 'now',  # Current timestamp
         'pHYs': (300, 300, 1),  # 300 DPI
         'gAMA': (0.45455,),  # Gamma 2.2

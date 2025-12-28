@@ -6,11 +6,6 @@ Features:
 2. Adam7 interlacing support
 3. Complete PNG file generation
 4. No decoding/parsing functions
-
-Version: 1.1.3
-
-Copyright (c) 2025 jan Ala
-MIT License
 '''
 
 import struct
@@ -29,7 +24,7 @@ COLOR_TYPE_INDEXED = 3        # Indexed color
 COLOR_TYPE_GRAYSCALE_ALPHA = 4  # Grayscale with alpha
 COLOR_TYPE_RGBA = 6           # Truecolor with alpha (RGBA)
 
-__version__  = '1.1.3'
+__version__  = '1.1.4'
 
 # ==================== Image Enlargement Functions ====================
 
@@ -45,7 +40,7 @@ def enlarge_image(width: int, height: int,
         image_data: Original image pixel data
         scale_factor: Integer scaling factor (e.g., 2 = 200% enlargement)
         color_type: PNG color type (0=grayscale, 2=RGB, 6=RGBA, etc.)
-        bit_depth: Bit depth (8 or 16)
+        bit_depth: Bit depth (1, 2, 4, 8, or 16)
     
     Returns:
         bytes: Enlarged image pixel data
@@ -53,12 +48,6 @@ def enlarge_image(width: int, height: int,
     Raises:
         ValueError: If scale_factor is not a positive integer
         ValueError: If image_data size doesn't match width, height, color_type and bit_depth
-    
-    Notes:
-        - Uses nearest-neighbor interpolation (fastest, maintains sharp edges)
-        - Supports 8-bit and 16-bit color depths
-        - Supports grayscale, RGB, RGBA, and indexed color types
-        - For indexed color, returns enlarged indexed data, not palette data
     '''
     # Validate scale factor
     if scale_factor < 1:
@@ -66,75 +55,75 @@ def enlarge_image(width: int, height: int,
     if scale_factor == 1:
         return image_data  # No scaling needed
     
-    # Calculate bytes per pixel based on color type and bit depth
-    bytes_per_channel = 1 if bit_depth == 8 else 2
-    
-    if color_type == COLOR_TYPE_GRAYSCALE:
-        bytes_per_pixel = bytes_per_channel
-    elif color_type == COLOR_TYPE_RGB:
-        bytes_per_pixel = 3 * bytes_per_channel
-    elif color_type == COLOR_TYPE_RGBA:
-        bytes_per_pixel = 4 * bytes_per_channel
-    elif color_type == COLOR_TYPE_GRAYSCALE_ALPHA:
-        bytes_per_pixel = 2 * bytes_per_channel
-    elif color_type == COLOR_TYPE_INDEXED:
-        # Indexed color: 1 byte per pixel regardless of bit depth
-        bytes_per_pixel = 1
-    else:
-        raise ValueError(f'unsupported color type: {color_type}')
-    
-    # Calculate expected data size and validate
-    if color_type == COLOR_TYPE_INDEXED and bit_depth < 8:
-        # For low-bit-depth indexed, data is packed
-        pixels_per_byte = 8 // bit_depth
-        bytes_per_row = (width + pixels_per_byte - 1) // pixels_per_byte
-        expected_size = bytes_per_row * height
-    else:
-        expected_size = width * height * bytes_per_pixel
-    
-    if len(image_data) != expected_size:
-        raise ValueError(
-            f'image data size mismatch. Expected {expected_size} bytes, '
-            f'got {len(image_data)} bytes for {width}x{height} image with '
-            f'color_type={color_type}, bit_depth={bit_depth}'
-        )
-    
     # Calculate new dimensions
     new_width = width * scale_factor
     new_height = height * scale_factor
     
-    # Prepare output buffer
-    if color_type == COLOR_TYPE_INDEXED and bit_depth < 8:
-        # For low-bit-depth indexed, we need to unpack, enlarge, then pack
-        return _enlarge_indexed_low_bit_depth(
-            width, height, image_data, scale_factor, bit_depth
-        )
-    elif color_type == COLOR_TYPE_INDEXED:
-        # For 8-bit indexed color
-        return _enlarge_indexed_8bit(
-            width, height, image_data, scale_factor
-        )
-    elif bit_depth < 8:
-        # For low-bit-depth grayscale (bit depth 1, 2, or 4)
-        return _enlarge_grayscale_low_bit_depth(
-            width, height, image_data, scale_factor, bit_depth
-        )
+    # Handle different color types
+    if color_type == COLOR_TYPE_INDEXED:
+        # For indexed color: data is packed for bit depths < 8
+        return _enlarge_indexed(width, height, image_data, scale_factor, bit_depth)
+    
+    elif color_type == COLOR_TYPE_GRAYSCALE:
+        if bit_depth < 8:
+            # For low-bit-depth grayscale: data is packed
+            return _enlarge_grayscale_low_bit_depth(width, height, image_data, scale_factor, bit_depth)
+        else:
+            # For 8/16-bit grayscale
+            bytes_per_pixel = 1 if bit_depth == 8 else 2
+            return _enlarge_standard(width, height, image_data, scale_factor, bytes_per_pixel)
+    
+    elif color_type == COLOR_TYPE_RGB:
+        if bit_depth == 8:
+            bytes_per_pixel = 3
+            return _enlarge_standard(width, height, image_data, scale_factor, bytes_per_pixel)
+        elif bit_depth == 16:
+            bytes_per_pixel = 6
+            return _enlarge_standard(width, height, image_data, scale_factor, bytes_per_pixel)
+        else:
+            raise ValueError(f'RGB color type does not support bit depth {bit_depth}')
+    
+    elif color_type == COLOR_TYPE_RGBA:
+        if bit_depth == 8:
+            bytes_per_pixel = 4
+            return _enlarge_standard(width, height, image_data, scale_factor, bytes_per_pixel)
+        elif bit_depth == 16:
+            bytes_per_pixel = 8
+            return _enlarge_standard(width, height, image_data, scale_factor, bytes_per_pixel)
+        else:
+            raise ValueError(f'RGBA color type does not support bit depth {bit_depth}')
+    
+    elif color_type == COLOR_TYPE_GRAYSCALE_ALPHA:
+        if bit_depth == 8:
+            bytes_per_pixel = 2
+            return _enlarge_standard(width, height, image_data, scale_factor, bytes_per_pixel)
+        elif bit_depth == 16:
+            bytes_per_pixel = 4
+            return _enlarge_standard(width, height, image_data, scale_factor, bytes_per_pixel)
+        else:
+            raise ValueError(f'Grayscale+Alpha color type does not support bit depth {bit_depth}')
+    
     else:
-        # For 8-bit or 16-bit color types
-        return _enlarge_standard(
-            width, height, image_data, scale_factor, 
-            bytes_per_pixel, bytes_per_channel
-        )
+        raise ValueError(f'unsupported color type: {color_type}')
 
 
 def _enlarge_standard(width: int, height: int,
-                      image_data: bytes, scale_factor: int,
-                      bytes_per_pixel: int, bytes_per_channel: int) -> bytes:
+                     image_data: bytes, scale_factor: int,
+                     bytes_per_pixel: int) -> bytes:
     '''
     Enlarge standard 8-bit or 16-bit image data
     '''
     new_width = width * scale_factor
     new_height = height * scale_factor
+    
+    # Validate data size
+    expected_size = width * height * bytes_per_pixel
+    if len(image_data) != expected_size:
+        raise ValueError(
+            f'Expected {expected_size} bytes for {width}x{height} image '
+            f'with {bytes_per_pixel} bytes per pixel, got {len(image_data)} bytes'
+        )
+    
     output = bytearray(new_width * new_height * bytes_per_pixel)
     
     for y in range(height):
@@ -143,81 +132,98 @@ def _enlarge_standard(width: int, height: int,
             src_index = (y * width + x) * bytes_per_pixel
             src_pixel = image_data[src_index:src_index + bytes_per_pixel]
             
-            # Calculate destination positions
-            dest_y_start = y * scale_factor
-            dest_y_end = dest_y_start + scale_factor
-            dest_x_start = x * scale_factor
-            dest_x_end = dest_x_start + scale_factor
-            
             # Copy pixel to all scaled positions
-            for dest_y in range(dest_y_start, dest_y_end):
-                for dest_x in range(dest_x_start, dest_x_end):
+            for dy in range(scale_factor):
+                for dx in range(scale_factor):
+                    dest_y = y * scale_factor + dy
+                    dest_x = x * scale_factor + dx
                     dest_index = (dest_y * new_width + dest_x) * bytes_per_pixel
                     output[dest_index:dest_index + bytes_per_pixel] = src_pixel
     
     return bytes(output)
 
 
-def _enlarge_indexed_8bit(width: int, height: int,
-                         image_data: bytes, scale_factor: int) -> bytes:
+def _enlarge_indexed(width: int, height: int,
+                    image_data: bytes, scale_factor: int,
+                    bit_depth: int) -> bytes:
     '''
-    Enlarge 8-bit indexed color image data
+    Enlarge indexed color image data (supports all bit depths: 1, 2, 4, 8)
     '''
     new_width = width * scale_factor
     new_height = height * scale_factor
-    output = bytearray(new_width * new_height)
     
-    for y in range(height):
-        for x in range(width):
-            # Get source pixel
-            src_index = y * width + x
-            src_pixel = image_data[src_index]
-            
-            # Calculate destination positions
-            dest_y_start = y * scale_factor
-            dest_y_end = dest_y_start + scale_factor
-            dest_x_start = x * scale_factor
-            dest_x_end = dest_x_start + scale_factor
-            
-            # Copy pixel to all scaled positions
-            for dest_y in range(dest_y_start, dest_y_end):
-                for dest_x in range(dest_x_start, dest_x_end):
-                    dest_index = dest_y * new_width + dest_x
-                    output[dest_index] = src_pixel
+    if bit_depth == 8:
+        # For 8-bit indexed: 1 byte per pixel
+        expected_size = width * height
+        if len(image_data) != expected_size:
+            raise ValueError(
+                f'Expected {expected_size} bytes for {width}x{height} 8-bit indexed image, '
+                f'got {len(image_data)} bytes'
+            )
+        
+        output = bytearray(new_width * new_height)
+        
+        for y in range(height):
+            for x in range(width):
+                src_index = y * width + x
+                src_pixel = image_data[src_index]
+                
+                # Copy pixel to all scaled positions
+                for dy in range(scale_factor):
+                    for dx in range(scale_factor):
+                        dest_y = y * scale_factor + dy
+                        dest_x = x * scale_factor + dx
+                        dest_index = dest_y * new_width + dest_x
+                        output[dest_index] = src_pixel
+        
+        return bytes(output)
     
-    return bytes(output)
-
-
-def _enlarge_indexed_low_bit_depth(width: int, height: int,
-                                  image_data: bytes, scale_factor: int,
-                                  bit_depth: int) -> bytes:
-    '''
-    Enlarge low-bit-depth indexed color image data (1, 2, or 4 bits per pixel)
-    '''
-    pixels_per_byte = 8 // bit_depth
-    mask = (1 << bit_depth) - 1
-    
-    # First unpack to full bytes
-    unpacked = bytearray(width * height)
-    bytes_per_row = (width + pixels_per_byte - 1) // pixels_per_byte
-    
-    for y in range(height):
-        row_start = y * bytes_per_row
-        for x in range(width):
-            byte_index = row_start + x // pixels_per_byte
-            if byte_index < len(image_data):
-                byte = image_data[byte_index]
-                shift = 8 - ((x % pixels_per_byte) + 1) * bit_depth
-                pixel_value = (byte >> shift) & mask
-                unpacked[y * width + x] = pixel_value
-    
-    # Enlarge the unpacked data
-    enlarged_unpacked = _enlarge_indexed_8bit(width, height, bytes(unpacked), scale_factor)
-    
-    # Pack back to original bit depth
-    new_width = width * scale_factor
-    new_height = height * scale_factor
-    return pack_pixels_to_bytes(enlarged_unpacked, bit_depth)
+    else:
+        # For low-bit-depth indexed (1, 2, 4 bits): data is packed
+        pixels_per_byte = 8 // bit_depth
+        mask = (1 << bit_depth) - 1
+        
+        # Validate data size
+        bytes_per_row = (width + pixels_per_byte - 1) // pixels_per_byte
+        expected_size = bytes_per_row * height
+        
+        if len(image_data) != expected_size:
+            raise ValueError(
+                f'Expected {expected_size} bytes for {width}x{height} {bit_depth}-bit indexed image, '
+                f'got {len(image_data)} bytes'
+            )
+        
+        # First unpack to full bytes for easier processing
+        unpacked = bytearray(width * height)
+        
+        for y in range(height):
+            row_start = y * bytes_per_row
+            for x in range(width):
+                byte_index = row_start + x // pixels_per_byte
+                if byte_index < len(image_data):
+                    byte = image_data[byte_index]
+                    shift = 8 - ((x % pixels_per_byte) + 1) * bit_depth
+                    pixel_value = (byte >> shift) & mask
+                    unpacked[y * width + x] = pixel_value
+        
+        # Enlarge the unpacked data
+        enlarged_unpacked = bytearray(new_width * new_height)
+        
+        for y in range(height):
+            for x in range(width):
+                src_index = y * width + x
+                src_pixel = unpacked[src_index]
+                
+                # Copy pixel to all scaled positions
+                for dy in range(scale_factor):
+                    for dx in range(scale_factor):
+                        dest_y = y * scale_factor + dy
+                        dest_x = x * scale_factor + dx
+                        dest_index = dest_y * new_width + dest_x
+                        enlarged_unpacked[dest_index] = src_pixel
+        
+        # Pack back to original bit depth
+        return _pack_pixels_to_bytes(enlarged_unpacked, bit_depth)
 
 
 def _enlarge_grayscale_low_bit_depth(width: int, height: int,
@@ -226,12 +232,24 @@ def _enlarge_grayscale_low_bit_depth(width: int, height: int,
     '''
     Enlarge low-bit-depth grayscale image data (1, 2, or 4 bits per pixel)
     '''
+    new_width = width * scale_factor
+    new_height = height * scale_factor
+    
     pixels_per_byte = 8 // bit_depth
     mask = (1 << bit_depth) - 1
     
-    # First unpack to full bytes (scaled to 8-bit)
-    unpacked = bytearray(width * height)
+    # Validate data size
     bytes_per_row = (width + pixels_per_byte - 1) // pixels_per_byte
+    expected_size = bytes_per_row * height
+    
+    if len(image_data) != expected_size:
+        raise ValueError(
+            f'Expected {expected_size} bytes for {width}x{height} {bit_depth}-bit grayscale image, '
+            f'got {len(image_data)} bytes'
+        )
+    
+    # First unpack to full bytes (scaled to 8-bit for enlargement)
+    unpacked_8bit = bytearray(width * height)
     
     for y in range(height):
         row_start = y * bytes_per_row
@@ -241,37 +259,111 @@ def _enlarge_grayscale_low_bit_depth(width: int, height: int,
                 byte = image_data[byte_index]
                 shift = 8 - ((x % pixels_per_byte) + 1) * bit_depth
                 pixel_value = (byte >> shift) & mask
+                
                 # Scale to 8-bit range
                 if bit_depth == 1:
-                    unpacked[y * width + x] = 0 if pixel_value == 0 else 255
+                    unpacked_8bit[y * width + x] = 0 if pixel_value == 0 else 255
                 elif bit_depth == 2:
-                    unpacked[y * width + x] = pixel_value * 85  # 0, 85, 170, 255
+                    unpacked_8bit[y * width + x] = pixel_value * 85  # 0, 85, 170, 255
                 elif bit_depth == 4:
-                    unpacked[y * width + x] = pixel_value * 17  # 0, 17, 34, ..., 255
-                else:
-                    unpacked[y * width + x] = pixel_value
+                    unpacked_8bit[y * width + x] = pixel_value * 17  # 0, 17, 34, ..., 255
     
-    # Enlarge the unpacked data
-    new_width = width * scale_factor
-    new_height = height * scale_factor
-    output = bytearray(new_width * new_height)
+    # Enlarge the 8-bit data
+    enlarged_8bit = bytearray(new_width * new_height)
     
     for y in range(height):
         for x in range(width):
             src_index = y * width + x
-            src_pixel = unpacked[src_index]
+            src_pixel = unpacked_8bit[src_index]
             
-            dest_y_start = y * scale_factor
-            dest_y_end = dest_y_start + scale_factor
-            dest_x_start = x * scale_factor
-            dest_x_end = dest_x_start + scale_factor
-            
-            for dest_y in range(dest_y_start, dest_y_end):
-                for dest_x in range(dest_x_start, dest_x_end):
+            # Copy pixel to all scaled positions
+            for dy in range(scale_factor):
+                for dx in range(scale_factor):
+                    dest_y = y * scale_factor + dy
+                    dest_x = x * scale_factor + dx
                     dest_index = dest_y * new_width + dest_x
-                    output[dest_index] = src_pixel
+                    enlarged_8bit[dest_index] = src_pixel
     
-    return bytes(output)
+    # Convert back to original bit depth
+    return _pack_pixels_to_bytes_low_bit_depth_grayscale(enlarged_8bit, bit_depth)
+
+
+def _pack_pixels_to_bytes(pixel_values: bytes, bit_depth: int) -> bytes:
+    '''
+    Pack pixel values into bytes (for low bit depths: 1, 2, 4 bits)
+    
+    Args:
+        pixel_values: Bytes of pixel values (each byte contains one pixel value)
+        bit_depth: Bit depth (1, 2, 4)
+    
+    Returns:
+        Packed bytes
+    '''
+    if bit_depth == 8:
+        return pixel_values
+    
+    pixels_per_byte = 8 // bit_depth
+    mask = (1 << bit_depth) - 1
+    result = bytearray()
+    current_byte = 0
+    bits_filled = 0
+    
+    for pixel in pixel_values:
+        current_byte = (current_byte << bit_depth) | (pixel & mask)
+        bits_filled += bit_depth
+        
+        if bits_filled == 8:
+            result.append(current_byte)
+            current_byte = 0
+            bits_filled = 0
+    
+    if bits_filled > 0:
+        current_byte <<= (8 - bits_filled)
+        result.append(current_byte)
+    
+    return bytes(result)
+
+
+def _pack_pixels_to_bytes_low_bit_depth_grayscale(pixel_values_8bit: bytes, bit_depth: int) -> bytes:
+    '''
+    Convert 8-bit grayscale values back to low bit depth packed bytes
+    
+    Args:
+        pixel_values_8bit: 8-bit grayscale pixel values
+        bit_depth: Target bit depth (1, 2, 4)
+    
+    Returns:
+        Packed bytes in specified bit depth
+    '''
+    pixels_per_byte = 8 // bit_depth
+    result = bytearray()
+    current_byte = 0
+    bits_filled = 0
+    
+    for pixel_8bit in pixel_values_8bit:
+        # Convert 8-bit value back to low bit depth
+        if bit_depth == 1:
+            pixel_value = 0 if pixel_8bit < 128 else 1
+        elif bit_depth == 2:
+            pixel_value = min(pixel_8bit // 85, 3)  # 0-3
+        elif bit_depth == 4:
+            pixel_value = min(pixel_8bit // 17, 15)  # 0-15
+        else:
+            pixel_value = pixel_8bit >> (8 - bit_depth)  # For theoretical bit depths
+        
+        current_byte = (current_byte << bit_depth) | pixel_value
+        bits_filled += bit_depth
+        
+        if bits_filled == 8:
+            result.append(current_byte)
+            current_byte = 0
+            bits_filled = 0
+    
+    if bits_filled > 0:
+        current_byte <<= (8 - bits_filled)
+        result.append(current_byte)
+    
+    return bytes(result)
 
 # ==================== Core Chunk Creation ====================
 
@@ -1769,11 +1861,113 @@ def create_test_rgb_image() -> Tuple[int, int, bytes]:
     
     return width, height, bytes(data)
 
-# ==================== Example Usage (extended) ====================
+def test_enlarge_image_comprehensive():
+    '''Comprehensive test for enlarge_image function'''
+    print('Testing enlarge_image function with various formats...')
+    
+    # Test 1: 8-bit grayscale
+    print('\nTest 1: 8-bit grayscale 2x2 -> 4x4')
+    width, height = 2, 2
+    gray_data = bytes([0, 255, 128, 64])
+    scaled = enlarge_image(width, height, gray_data, 2, COLOR_TYPE_GRAYSCALE, 8)
+    expected_size = 4 * 4 * 1  # 4x4 pixels, 1 byte per pixel
+    assert len(scaled) == expected_size, f'Expected {expected_size} bytes, got {len(scaled)}'
+    print('✓ 8-bit grayscale test passed')
+    
+    # Test 2: 4-bit indexed color
+    print('\nTest 2: 4-bit indexed 4x4 -> 8x8')
+    width, height = 4, 4
+    # Create packed 4-bit data (2 pixels per byte)
+    # Pixel values: 0-15 for 4-bit
+    packed_data = bytes([
+        0x01, 0x23,  # Row 1: pixels 0,1,2,3
+        0x45, 0x67,  # Row 2: pixels 4,5,6,7
+        0x89, 0xAB,  # Row 3: pixels 8,9,10,11
+        0xCD, 0xEF   # Row 4: pixels 12,13,14,15
+    ])
+    scaled = enlarge_image(width, height, packed_data, 2, COLOR_TYPE_INDEXED, 4)
+    # After 2x scaling: 8x8 pixels, packed as 4-bit (2 pixels per byte)
+    expected_bytes = (8 * 8 + 1) // 2  # 64 pixels / 2 pixels per byte = 32 bytes
+    assert len(scaled) == expected_bytes, f'Expected {expected_bytes} bytes, got {len(scaled)}'
+    print('✓ 4-bit indexed test passed')
+    
+    # Test 3: 2-bit grayscale
+    print('\nTest 3: 2-bit grayscale 4x4 -> 8x8')
+    # 2-bit grayscale: 4 levels (0,1,2,3), 4 pixels per byte
+    packed_2bit = bytes([
+        0x00, 0x55, 0xAA, 0xFF,  # Various patterns
+    ])
+    scaled = enlarge_image(4, 4, packed_2bit, 2, COLOR_TYPE_GRAYSCALE, 2)
+    expected_bytes = (8 * 8 + 3) // 4  # 64 pixels / 4 pixels per byte = 16 bytes
+    assert len(scaled) == expected_bytes, f'Expected {expected_bytes} bytes, got {len(scaled)}'
+    print('✓ 2-bit grayscale test passed')
+    
+    # Test 4: 1-bit indexed (monochrome)
+    print('\nTest 4: 1-bit indexed 8x8 -> 16x16')
+    width, height = 8, 8
+    # Create checkerboard pattern: 8 pixels per byte
+    checkerboard = bytes([
+        0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55  # 8 rows
+    ])
+    scaled = enlarge_image(width, height, checkerboard, 2, COLOR_TYPE_INDEXED, 1)
+    expected_bytes = (16 * 16 + 7) // 8  # 256 pixels / 8 pixels per byte = 32 bytes
+    assert len(scaled) == expected_bytes, f'Expected {expected_bytes} bytes, got {len(scaled)}'
+    print('✓ 1-bit indexed test passed')
+    
+    # Test 5: 8-bit RGB
+    print('\nTest 5: 8-bit RGB 3x2 -> 6x4')
+    width, height = 3, 2
+    rgb_data = bytes([
+        255, 0, 0,   0, 255, 0,   0, 0, 255,  # Row 1: Red, Green, Blue
+        255, 255, 0, 255, 0, 255, 0, 255, 255  # Row 2: Yellow, Magenta, Cyan
+    ])
+    scaled = enlarge_image(width, height, rgb_data, 2, COLOR_TYPE_RGB, 8)
+    expected_size = 6 * 4 * 3  # 6x4 pixels, 3 bytes per pixel
+    assert len(scaled) == expected_size, f'Expected {expected_size} bytes, got {len(scaled)}'
+    print('✓ 8-bit RGB test passed')
+    
+    # Test 6: 8-bit RGBA
+    print('\nTest 6: 8-bit RGBA 2x2 -> 4x4')
+    width, height = 2, 2
+    rgba_data = bytes([
+        255, 0, 0, 255,      # Red
+        0, 255, 0, 128,      # Green with 50% alpha
+        0, 0, 255, 64,       # Blue with 25% alpha
+        255, 255, 0, 192     # Yellow with 75% alpha
+    ])
+    scaled = enlarge_image(width, height, rgba_data, 2, COLOR_TYPE_RGBA, 8)
+    expected_size = 4 * 4 * 4  # 4x4 pixels, 4 bytes per pixel
+    assert len(scaled) == expected_size, f'Expected {expected_size} bytes, got {len(scaled)}'
+    print('✓ 8-bit RGBA test passed')
+    
+    # Test 7: 16-bit grayscale
+    print('\nTest 7: 16-bit grayscale 2x2 -> 4x4')
+    width, height = 2, 2
+    gray16_data = bytes([
+        0, 0,      # 0
+        255, 255,  # 65535
+        128, 0,    # 32768
+        64, 0      # 16384
+    ])
+    scaled = enlarge_image(width, height, gray16_data, 2, COLOR_TYPE_GRAYSCALE, 16)
+    expected_size = 4 * 4 * 2  # 4x4 pixels, 2 bytes per pixel
+    assert len(scaled) == expected_size, f'Expected {expected_size} bytes, got {len(scaled)}'
+    print('✓ 16-bit grayscale test passed')
+    
+    print('\n' + '=' * 50)
+    print('All tests passed successfully!')
+    print('=' * 50)
+
+# ==================== Example Usage ====================
 
 if __name__ == '__main__':
+    # Run comprehensive tests first
+    test_enlarge_image_comprehensive()
+    
+    print('\n' + '=' * 50 + '\nExample Usage:\n' + '=' * 50)
+    
     # Example 1: Simple RGB PNG with metadata
-    print('=' * 50 + '\nCreating RGB PNG with metadata...')
+    print('\nCreating RGB PNG with metadata...')
     width, height, rgb_data = create_test_rgb_image()
     
     png_data = create_png(
@@ -1796,7 +1990,7 @@ if __name__ == '__main__':
     print(f'RGB PNG with metadata created: {len(png_data)} bytes')
     
     # Example 2: RGBA PNG with transparency hint and the best filter
-    print('=' * 50 + '\nCreating RGBA PNG...')
+    print('\nCreating RGBA PNG...')
     width, height = 64, 64
     rgba_data = bytearray()
     for y in range(height):
@@ -1822,7 +2016,7 @@ if __name__ == '__main__':
     print(f'RGBA PNG created: {len(png_data)} bytes')
     
     # Example 3: Indexed PNG with palette and transparency
-    print('=' * 50 + '\nCreating indexed PNG...')
+    print('\nCreating indexed PNG...')
     width, height = 32, 32
     palette = [
         (255, 0, 0),    # Red
@@ -1857,4 +2051,5 @@ if __name__ == '__main__':
         f.write(png_data)
     print(f'Indexed PNG created: {len(png_data)} bytes')
     
-    print('=' * 50 + '\nAll test PNG files saved successfully!')
+    print('\n' + '=' * 50)
+    print('All test PNG files saved successfully!')
